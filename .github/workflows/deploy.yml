@@ -1,0 +1,67 @@
+# Production deploy: SSH to app server, pull latest main, rebuild and restart stack.
+#
+# GitHub repository secrets (Settings → Secrets and variables → Actions):
+#   HOST       — Server hostname or IP (e.g. deploy.example.com).
+#   USERNAME   — SSH user with permission to run docker/git in /opt/ktzh-crm.
+#   SSH_KEY    — Private key (PEM/OpenSSH). Paste full key including header/footer.
+#   SSH_PORT   — SSH port (e.g. 22). Set explicitly; avoids accidental empty override.
+#
+# Server prerequisites (one-time):
+#   - Repo cloned to /opt/ktzh-crm, remote origin points at this GitHub repo.
+#   - Docker Engine + Docker Compose v2 plugin installed.
+#   - User in docker group (or root) so `docker compose` works non-interactively.
+#   - `.env` (or env files) present on the server as required by docker-compose.yml.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          HOST: ${{ secrets.HOST }}
+          USERNAME: ${{ secrets.USERNAME }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${HOST:-}" ] && missing+=("HOST")
+          [ -z "${USERNAME:-}" ] && missing+=("USERNAME")
+          [ -z "${SSH_KEY:-}" ] && missing+=("SSH_KEY")
+          [ -z "${SSH_PORT:-}" ] && missing+=("SSH_PORT")
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::Missing required secret(s): ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Remote deploy (pull, build, up, verify, prune)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          timeout: 60s
+          command_timeout: 45m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/ktzh-crm
+            git pull origin main
+            docker compose build
+            docker compose up -d
+            docker compose ps
+            docker image prune -f

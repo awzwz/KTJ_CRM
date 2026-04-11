@@ -1,0 +1,355 @@
+version: "3.9"
+
+services:
+  # === Infrastructure ===
+  postgres:
+    image: postgres:16-alpine
+    container_name: ktzh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # ports removed — only accessible within docker network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    networks:
+      - ktzh-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ktzh-redis
+    restart: unless-stopped
+    # ports removed — only accessible within docker network
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ktzh-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    # ports removed — only accessible within docker network
+    # For local dev, uncomment: ports: ["5672:5672", "15672:15672"]
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.5"
+    networks:
+      - ktzh-network
+
+  # === Backend Services ===
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: ktzh-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    env_file: .env
+    depends_on:
+      auth:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  auth:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    container_name: ktzh-auth
+    restart: unless-stopped
+    ports:
+      - "${AUTH_PORT:-8007}:8007"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  webhook:
+    build:
+      context: .
+      dockerfile: services/webhook/Dockerfile
+    container_name: ktzh-webhook
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-8001}:8001"
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  bot:
+    build:
+      context: .
+      dockerfile: services/bot/Dockerfile
+    container_name: ktzh-bot
+    restart: unless-stopped
+    ports:
+      - "${BOT_PORT:-8002}:8002"
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  llm:
+    build:
+      context: .
+      dockerfile: services/llm/Dockerfile
+    container_name: ktzh-llm
+    restart: unless-stopped
+    ports:
+      - "${LLM_PORT:-8003}:8003"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  crm:
+    build:
+      context: .
+      dockerfile: services/crm/Dockerfile
+    container_name: ktzh-crm
+    restart: unless-stopped
+    ports:
+      - "${CRM_PORT:-8004}:8004"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  routing:
+    build:
+      context: .
+      dockerfile: services/routing/Dockerfile
+    container_name: ktzh-routing
+    restart: unless-stopped
+    ports:
+      - "${ROUTING_PORT:-8005}:8005"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  analytics:
+    build:
+      context: .
+      dockerfile: services/analytics/Dockerfile
+    container_name: ktzh-analytics
+    restart: unless-stopped
+    ports:
+      - "${ANALYTICS_PORT:-8006}:8006"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  notification:
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
+    container_name: ktzh-notification
+    restart: unless-stopped
+    ports:
+      - "${NOTIFICATION_PORT:-8008}:8008"
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  # === Frontend ===
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+    container_name: ktzh-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    depends_on:
+      - gateway
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    networks:
+      - ktzh-network
+
+  # === Nginx Reverse Proxy ===
+  nginx:
+    image: nginx:alpine
+    container_name: ktzh-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - gateway
+      - frontend
+      - webhook
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+    networks:
+      - ktzh-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+
+networks:
+  ktzh-network:
+    driver: bridge
