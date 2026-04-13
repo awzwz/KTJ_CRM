@@ -38,22 +38,29 @@ jobs:
           pip install \
             "pydantic[email]" \
             pydantic-settings \
-            sqlalchemy \
+            "sqlalchemy[asyncio]" \
             asyncpg
 
       - name: Verify shared packages import
         env:
           PYTHONPATH: ${{ github.workspace }}
+          DATABASE_URL: "sqlite+aiosqlite:///test.db"
         run: |
           set -euo pipefail
-          python - <<'PY'
+          pip install aiosqlite
+          python -c "
           import shared.config
+          print('OK: shared.config')
           import shared.database
-          import shared.models
-          import shared.schemas
+          print('OK: shared.database')
           import shared.constants
-          print("OK: shared.config, database, models, schemas, constants")
-          PY
+          print('OK: shared.constants')
+          import shared.models
+          print('OK: shared.models')
+          import shared.schemas
+          print('OK: shared.schemas')
+          print('ALL SHARED MODULES OK')
+          "
 
   build:
     name: Build (Docker services)
@@ -67,8 +74,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build application images (compose)
-        # Builds only app services listed below — no registry push (see deploy workflow).
-        # Infra images (postgres, redis, etc.) are pulled at runtime, not built here.
         run: |
           set -euo pipefail
           docker compose build \
