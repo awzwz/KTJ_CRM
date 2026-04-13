@@ -36,3 +36,33 @@ export const CATEGORY_COLORS: Record<string, string> = {
   complaint: "bg-red-100 text-red-800",
   suggestion: "bg-indigo-100 text-indigo-800",
 };
+
+// Hex-цвета для графиков (SVG/canvas) — единый источник, используется в analytics
+export const CATEGORY_HEX_COLORS: Record<string, string> = {
+  complaint: "#001d44",
+  gratitude: "#059669",
+  lost_items: "#ea580c",
+  ticket_return: "#0284c7",
+  suggestion: "#6366f1",
+};
+
+export const SOURCE_LABELS: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  phone_1433: "Телефон 1433",
+};
+
+export const VALID_TRANSITIONS: Record<string, string[]> = {
+  new: ["in_progress"],
+  in_progress: ["on_review", "resolved"],
+  on_review: ["in_progress", "resolved"],
+  resolved: ["closed", "in_progress"],
+  closed: [],
+};
+
+export function formatSeconds(seconds: number | null | undefined): string {
+  if (seconds == null) return "—";
+  const hours = seconds / 3600;
+  if (hours >= 1) return `${hours.toFixed(1)} ч`;
+  const mins = seconds / 60;
+  return `${mins.toFixed(0)} мин`;
+}

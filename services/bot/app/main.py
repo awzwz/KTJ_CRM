@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting bot consumer...")
-    connection = await start_consumer(settings.rabbitmq_url)
+    connection, cleanup = await start_consumer(settings.rabbitmq_url)
     app.state.rabbit_connection = connection
     yield
+    await cleanup()
     await connection.close()
     logger.info("Bot consumer stopped.")
 

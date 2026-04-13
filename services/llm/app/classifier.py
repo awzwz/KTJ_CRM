@@ -94,15 +94,15 @@ class AppealClassifier:
         """Simple keyword-based fallback when LLM is unavailable."""
         text_lower = text.lower()
 
-        if any(w in text_lower for w in ("спасибо", "благодар", "рахмет", "алғыс")):
+        if any(w in text_lower for w in ("спасибо", "благодар", "рахмет", "алғыс", "thank", "grateful")):
             category = "gratitude"
-        elif any(w in text_lower for w in ("забыл", "оставил", "потерял", "ұмыт")):
+        elif any(w in text_lower for w in ("забыл", "оставил", "потерял", "ұмыт", "forgot", "lost", "left behind")):
             category = "lost_items"
-        elif any(w in text_lower for w in ("возврат", "вернуть", "билет", "қайтару")):
+        elif any(w in text_lower for w in ("возврат", "вернуть", "билет", "қайтару", "refund", "return ticket")):
             category = "ticket_return"
-        elif any(w in text_lower for w in ("жалоб", "претенз", "плохо", "ужас", "шағым")):
+        elif any(w in text_lower for w in ("жалоб", "претенз", "плохо", "ужас", "шағым", "complaint", "terrible", "awful")):
             category = "complaint"
-        elif any(w in text_lower for w in ("предлаг", "предложен", "улучш", "ұсыныс")):
+        elif any(w in text_lower for w in ("предлаг", "предложен", "улучш", "ұсыныс", "suggest", "improve")):
             category = "suggestion"
         else:
             category = "complaint"

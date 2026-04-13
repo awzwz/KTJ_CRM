@@ -1,247 +1,294 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  BarChart3,
-  TrendingUp,
-  Clock,
-  Users,
-  Train,
-  Building2,
-  Timer,
-} from "lucide-react";
-import api from "@/lib/api";
-import { CATEGORY_LABELS, CATEGORY_COLORS, cn } from "@/lib/utils";
+import React, { useState } from "react";
+import { useKpi, useSummary, useTopTrains, useTimeline } from "@/hooks/useQueries";
+import { formatSeconds, CATEGORY_LABELS, CATEGORY_HEX_COLORS } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 
-interface KPI {
-  total_appeals: number;
-  resolved_count: number;
-  new_count: number;
-  in_progress_count: number;
-  avg_response_time_seconds: number | null;
-  avg_resolution_time_seconds: number | null;
-}
-
-interface Summary {
-  by_status: Record<string, number>;
-  by_category: Record<string, number>;
-}
-
-interface TopTrain {
-  train_number: number;
-  appeal_count: number;
-  complaint_count: number;
-  gratitude_count: number;
-}
-
-interface BranchStat {
-  branch_name: string;
-  branch_code: string;
-  total: number;
-  new_count: number;
-  in_progress_count: number;
-  resolved_count: number;
-}
-
-interface OperatorStat {
-  operator_id: string;
-  full_name: string;
-  role: string;
-  assigned_total: number;
-  resolved_count: number;
-  avg_response_seconds: number | null;
-}
-
-function formatDuration(seconds: number | null): string {
-  if (seconds === null || seconds === undefined) return "—";
-  if (seconds < 60) return `${Math.round(seconds)} сек`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.round((seconds % 3600) / 60);
-  return `${hours} ч ${mins} мин`;
-}
 
 export default function AnalyticsPage() {
-  const [kpi, setKpi] = useState<KPI | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [topTrains, setTopTrains] = useState<TopTrain[]>([]);
-  const [branches, setBranches] = useState<BranchStat[]>([]);
-  const [operators, setOperators] = useState<OperatorStat[]>([]);
+  const queryClient = useQueryClient();
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  useEffect(() => {
-    api.get("/analytics/dashboard/kpi").then((r) => setKpi(r.data)).catch(() => {});
-    api.get("/analytics/dashboard/summary").then((r) => setSummary(r.data)).catch(() => {});
-    api.get("/analytics/dashboard/top-trains?limit=10").then((r) => setTopTrains(r.data)).catch(() => {});
-    api.get("/analytics/dashboard/by-branch").then((r) => setBranches(r.data)).catch(() => {});
-    api.get("/analytics/dashboard/operator-performance").then((r) => setOperators(r.data)).catch(() => {});
-  }, []);
+  const { data: kpi, isLoading } = useKpi();
+  const { data: summary } = useSummary();
+  const { data: topTrains = [] } = useTopTrains(5);
+  const { data: timeline = [] } = useTimeline(14, dateFrom || undefined, dateTo || undefined);
 
   const resolutionRate =
     kpi && kpi.total_appeals > 0
-      ? Math.round((kpi.resolved_count / kpi.total_appeals) * 100)
-      : 0;
+      ? ((kpi.resolved_count / kpi.total_appeals) * 100).toFixed(1)
+      : "0.0";
+
+  const categoryData = summary?.by_category || {};
+  const categoryTotal = Object.values(categoryData).reduce((a, b) => a + b, 0);
+  const categoryEntries = Object.entries(categoryData).sort((a, b) => b[1] - a[1]);
+
+  const maxTrainCount = topTrains.length > 0 ? topTrains[0].complaint_count : 1;
+
+  const timelineMax = timeline.length > 0 ? Math.max(...timeline.map((t) => t.total), 1) : 1;
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["analytics"] });
+  };
+
+  const handleExport = () => {
+    const rows = [["Дата", "Всего", "Жалобы", "Благодарности"]];
+    timeline.forEach((t) => rows.push([t.day, String(t.total), String(t.complaints), String(t.gratitudes)]));
+    const csv = rows.map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ktzh-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div>
-      <h1 className="mb-8 text-2xl font-bold text-gray-900">Аналитика</h1>
+    <div className="p-6 lg:p-8 max-w-[1400px] mx-auto">
+      {/* Header */}
+      <div className="flex items-end justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-extrabold font-headline text-slate-900 tracking-tight">Аналитика</h1>
+          <p className="text-sm text-slate-500 mt-1">Статистика и KPI по обращениям</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-ktzh-blue focus:outline-none focus:ring-1 focus:ring-ktzh-blue/20"
+              aria-label="Дата от"
+            />
+            <span className="text-slate-400 text-xs" aria-hidden="true">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-ktzh-blue focus:outline-none focus:ring-1 focus:ring-ktzh-blue/20"
+              aria-label="Дата до"
+            />
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+                className="h-9 px-2 text-xs text-slate-500 hover:text-ktzh-blue transition-colors"
+                aria-label="Сбросить фильтр дат"
+              >✕</button>
+            )}
+          </div>
+          <button
+            onClick={handleExport}
+            className="h-9 px-4 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Экспорт CSV
+          </button>
+          <button
+            onClick={handleRefresh}
+            className="h-9 px-4 rounded-lg bg-ktzh-dark text-white text-xs font-semibold hover:bg-ktzh-blue transition-colors flex items-center gap-1.5"
+          >
+            <span className="material-symbols-outlined text-[16px]">refresh</span>
+            Обновить
+          </button>
+        </div>
+      </div>
 
       {/* KPI Cards */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {[
-          { label: "Всего", value: kpi?.total_appeals, icon: BarChart3, bg: "bg-blue-100", fg: "text-blue-600" },
-          { label: "Новые", value: kpi?.new_count, icon: Clock, bg: "bg-amber-100", fg: "text-amber-600" },
-          { label: "В работе", value: kpi?.in_progress_count, icon: Users, bg: "bg-purple-100", fg: "text-purple-600" },
-          { label: "Решено", value: `${kpi?.resolved_count ?? "—"} (${resolutionRate}%)`, icon: TrendingUp, bg: "bg-green-100", fg: "text-green-600" },
-          { label: "Ср. ответ", value: formatDuration(kpi?.avg_response_time_seconds ?? null), icon: Timer, bg: "bg-cyan-100", fg: "text-cyan-600" },
-          { label: "Ср. решение", value: formatDuration(kpi?.avg_resolution_time_seconds ?? null), icon: Timer, bg: "bg-rose-100", fg: "text-rose-600" },
-        ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", card.bg)}>
-                <card.icon className={cn("h-5 w-5", card.fg)} />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">{card.label}</p>
-                <p className="text-lg font-bold text-gray-900">{card.value ?? "—"}</p>
-              </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-slate-500">inbox</span>
             </div>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Всего</span>
           </div>
-        ))}
-      </div>
-
-      <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Categories */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">По категориям</h2>
-          {summary?.by_category ? (
-            <div className="space-y-3">
-              {Object.entries(summary.by_category).map(([cat, count]) => {
-                const max = Math.max(...Object.values(summary.by_category), 1);
-                return (
-                  <div key={cat}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", CATEGORY_COLORS[cat] || "bg-gray-100 text-gray-800")}>
-                        {CATEGORY_LABELS[cat] || cat}
-                      </span>
-                      <span className="text-sm font-semibold">{count}</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                      <div className="h-full rounded-full bg-ktzh-blue transition-all" style={{ width: `${(count / max) * 100}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">Загрузка...</p>
-          )}
+          <div className="text-3xl font-extrabold text-slate-900 font-headline">
+            {isLoading ? "..." : kpi?.total_appeals ?? "0"}
+          </div>
         </div>
 
-        {/* Top Trains */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Train className="h-5 w-5 text-gray-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Топ поездов по обращениям</h2>
-          </div>
-          {topTrains.length > 0 ? (
-            <div className="overflow-hidden rounded-lg border border-gray-100">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 text-xs uppercase text-gray-500">
-                    <th className="px-3 py-2 text-left">Поезд</th>
-                    <th className="px-3 py-2 text-right">Всего</th>
-                    <th className="px-3 py-2 text-right">Жалоб</th>
-                    <th className="px-3 py-2 text-right">Благодарн.</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {topTrains.map((t) => (
-                    <tr key={t.train_number} className="text-sm">
-                      <td className="px-3 py-2 font-medium text-gray-900">#{t.train_number}</td>
-                      <td className="px-3 py-2 text-right">{t.appeal_count}</td>
-                      <td className="px-3 py-2 text-right text-red-600">{t.complaint_count}</td>
-                      <td className="px-3 py-2 text-right text-green-600">{t.gratitude_count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="bg-ktzh-dark rounded-xl shadow-sm p-5 text-white">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-white/80" aria-hidden="true">fiber_new</span>
             </div>
-          ) : (
-            <p className="text-sm text-gray-400">Нет данных</p>
-          )}
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Новые</span>
+          </div>
+          <div className="text-3xl font-extrabold font-headline">{kpi?.new_count ?? "0"}</div>
+          <div className="mt-2 text-xs text-white/50">В работе: {kpi?.in_progress_count ?? 0}</div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-ktzh-blue">schedule</span>
+            </div>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Время ответа</span>
+          </div>
+          <div className="text-3xl font-extrabold text-slate-900 font-headline">
+            {formatSeconds(kpi?.avg_response_time_seconds)}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-emerald-600">check_circle</span>
+            </div>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Решено</span>
+          </div>
+          <div className="text-3xl font-extrabold text-slate-900 font-headline">{resolutionRate}%</div>
+          <div className="mt-2 text-xs text-slate-500">{kpi?.resolved_count ?? 0} из {kpi?.total_appeals ?? 0}</div>
         </div>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* By Branch */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-gray-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Нагрузка по филиалам</h2>
+      <div className="grid grid-cols-12 gap-6 mb-6">
+        {/* Timeline chart */}
+        <div className="col-span-12 lg:col-span-8 bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-sm font-bold text-slate-700">Обращения за 14 дней</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Входящий поток по дням</p>
+            </div>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-ktzh-dark"></span>
+                <span className="text-[10px] font-semibold text-slate-500 uppercase">Всего</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400" aria-hidden="true"></span>
+                <span className="text-[10px] font-semibold text-slate-500 uppercase">Жалобы</span>
+              </div>
+            </div>
           </div>
-          {branches.length > 0 ? (
-            <div className="space-y-3">
-              {branches.filter((b) => b.total > 0).map((b) => {
-                const max = Math.max(...branches.map((x) => x.total), 1);
+
+          {timeline.length === 0 ? (
+            <div className="h-48 flex items-center justify-center text-sm text-slate-300">Нет данных</div>
+          ) : (
+            <div className="h-48 flex items-end gap-1.5">
+              {timeline.map((point) => {
+                const totalH = (point.total / timelineMax) * 100;
+                const complaintH = (point.complaints / timelineMax) * 100;
+                const dayLabel = point.day.slice(5);
                 return (
-                  <div key={b.branch_code}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm text-gray-700">{b.branch_name}</span>
-                      <div className="flex gap-3 text-xs">
-                        <span className="text-blue-600">{b.new_count} нов.</span>
-                        <span className="text-yellow-600">{b.in_progress_count} в раб.</span>
-                        <span className="text-green-600">{b.resolved_count} реш.</span>
-                        <span className="font-semibold">{b.total}</span>
+                  <div key={point.day} className="flex-1 flex flex-col items-center gap-1 group relative">
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] px-2 py-0.5 rounded hidden group-hover:block whitespace-nowrap z-10">
+                      {point.total} обр. / {point.complaints} жал.
+                    </div>
+                    <div className="w-full flex flex-col items-center" style={{ height: "100%" }}>
+                      <div className="w-full flex-1" />
+                      <div className="w-full rounded-t bg-ktzh-dark/20 relative" style={{ height: `${totalH}%`, minHeight: point.total > 0 ? "4px" : "0" }}>
+                        <div className="absolute bottom-0 left-0 right-0 bg-red-400/60 rounded-t" style={{ height: `${complaintH > 0 ? (complaintH / totalH) * 100 : 0}%`, minHeight: point.complaints > 0 ? "2px" : "0" }} />
                       </div>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                      <div className="h-full rounded-full bg-ktzh-blue transition-all" style={{ width: `${(b.total / max) * 100}%` }} />
+                    <span className="text-[8px] font-semibold text-slate-300 mt-1">{dayLabel}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Category distribution */}
+        <div className="col-span-12 lg:col-span-4 bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
+          <h3 className="text-sm font-bold text-slate-700 mb-1">По категориям</h3>
+          <p className="text-xs text-slate-500 mb-6">Распределение обращений</p>
+
+          {categoryTotal === 0 ? (
+            <div className="h-40 flex items-center justify-center text-sm text-slate-300">Нет данных</div>
+          ) : (
+            <div className="space-y-4">
+              {categoryEntries.map(([cat, count]) => {
+                const pct = ((count / categoryTotal) * 100).toFixed(1);
+                return (
+                  <div key={cat}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CATEGORY_HEX_COLORS[cat] || "#94a3b8" }} />
+                        <span className="text-xs font-semibold text-slate-600">{CATEGORY_LABELS[cat] || cat}</span>
+                      </div>
+                      <span className="text-xs font-bold text-slate-800">{count} ({pct}%)</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, backgroundColor: CATEGORY_HEX_COLORS[cat] || "#94a3b8" }}
+                      />
                     </div>
                   </div>
                 );
               })}
-              {branches.every((b) => b.total === 0) && (
-                <p className="text-sm text-gray-400">Нет назначенных обращений</p>
-              )}
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Top trains & status breakdown */}
+      <div className="grid grid-cols-12 gap-6">
+        {/* Top trains */}
+        <div className="col-span-12 lg:col-span-6 bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
+          <h3 className="text-sm font-bold text-slate-700 mb-1">Топ поездов по жалобам</h3>
+          <p className="text-xs text-slate-500 mb-6">Поезда с наибольшим количеством жалоб</p>
+
+          {topTrains.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-sm text-slate-300">Нет данных</div>
           ) : (
-            <p className="text-sm text-gray-400">Нет данных</p>
+            <div className="space-y-5">
+              {topTrains.map((t, i) => {
+                const pct = (t.complaint_count / maxTrainCount) * 100;
+                return (
+                  <div key={t.train_number}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-300 w-4">{i + 1}</span>
+                        <span className="text-xs font-semibold text-slate-700">Поезд № {t.train_number}</span>
+                      </div>
+                      <span className="text-xs font-bold text-slate-800">{t.complaint_count} жал.</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-ktzh-dark transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 
-        {/* Operator Performance */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Users className="h-5 w-5 text-gray-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Эффективность операторов</h2>
-          </div>
-          {operators.length > 0 ? (
-            <div className="overflow-hidden rounded-lg border border-gray-100">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 text-xs uppercase text-gray-500">
-                    <th className="px-3 py-2 text-left">Оператор</th>
-                    <th className="px-3 py-2 text-right">Назначено</th>
-                    <th className="px-3 py-2 text-right">Решено</th>
-                    <th className="px-3 py-2 text-right">Ср. ответ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {operators.map((op) => (
-                    <tr key={op.operator_id} className="text-sm">
-                      <td className="px-3 py-2 font-medium text-gray-900">{op.full_name}</td>
-                      <td className="px-3 py-2 text-right">{op.assigned_total}</td>
-                      <td className="px-3 py-2 text-right text-green-600">{op.resolved_count}</td>
-                      <td className="px-3 py-2 text-right text-gray-500">
-                        {formatDuration(op.avg_response_seconds)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {/* Status breakdown */}
+        <div className="col-span-12 lg:col-span-6 bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
+          <h3 className="text-sm font-bold text-slate-700 mb-1">По статусам</h3>
+          <p className="text-xs text-slate-500 mb-6">Распределение по текущему статусу</p>
+
+          {!summary?.by_status || Object.keys(summary.by_status).length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-sm text-slate-300">Нет данных</div>
           ) : (
-            <p className="text-sm text-gray-400">Нет данных</p>
+            <div className="space-y-4">
+              {Object.entries(summary.by_status).sort((a, b) => b[1] - a[1]).map(([status, count]) => {
+                const statusTotal = Object.values(summary.by_status).reduce((a, b) => a + b, 0);
+                const pct = ((count / statusTotal) * 100).toFixed(1);
+                const STATUS_LABELS: Record<string, string> = { new: "Новое", in_progress: "В работе", on_review: "На проверке", resolved: "Решено", closed: "Закрыто" };
+                const STATUS_DOT_COLORS: Record<string, string> = { new: "#3b82f6", in_progress: "#eab308", on_review: "#a855f7", resolved: "#22c55e", closed: "#6b7280" };
+                return (
+                  <div key={status} className="flex items-center gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_DOT_COLORS[status] || "#94a3b8" }} />
+                    <span className="text-xs font-semibold text-slate-600 w-24">{STATUS_LABELS[status] || status}</span>
+                    <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, backgroundColor: STATUS_DOT_COLORS[status] || "#94a3b8" }}
+                      />
+                    </div>
+                    <span className="text-xs font-bold text-slate-800 w-16 text-right">{count} ({pct}%)</span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>

@@ -14,16 +14,21 @@ class NormalizedMessage(BaseModel):
     text: str
     message_id: str | None = None
     chat_type: str = "whatsapp"
+    media_type: str | None = None
+    content_url: str | None = None
+
+
+MEDIA_TYPES = {"image", "video", "audio", "voice", "document", "sticker", "file"}
 
 
 def extract_incoming_messages(payload: dict) -> list[NormalizedMessage]:
     """
-    Extract and normalize incoming text messages from a Wazzup webhook payload.
-    Filters out status updates, delivery reports, and non-text messages.
+    Extract and normalize incoming messages from a Wazzup webhook payload.
+    Handles text messages and media messages (audio, image, video, etc.).
+    Filters out status updates, delivery reports, and echo messages.
     """
     messages = []
 
-    # Wazzup v3 webhook format
     raw_messages = payload.get("messages", [])
 
     for msg in raw_messages:
@@ -31,26 +36,32 @@ def extract_incoming_messages(payload: dict) -> list[NormalizedMessage]:
             logger.debug("Skipping echo message: %s", msg.get("messageId"))
             continue
 
-        if msg.get("type") == "text" or "text" in msg:
-            chat_id = msg.get("chatId", "")
-            channel_id = msg.get("channelId", "")
+        msg_type = msg.get("type", "")
+        chat_id = msg.get("chatId", "")
+        channel_id = msg.get("channelId", "")
+        message_id = msg.get("messageId")
+        content_url = msg.get("contentUri") or msg.get("content")
+
+        if not chat_id:
+            continue
+
+        if msg_type == "text" or ("text" in msg and msg_type not in MEDIA_TYPES):
             text = msg.get("text", "").strip()
-            message_id = msg.get("messageId")
-
-            if not chat_id or not text:
-                logger.debug("Skipping message with missing chatId or text: %s", msg)
+            if not text:
+                logger.debug("Skipping message with empty text: %s", msg)
                 continue
+            messages.append(NormalizedMessage(
+                chat_id=chat_id, channel_id=channel_id,
+                text=text, message_id=message_id,
+            ))
+        elif msg_type in MEDIA_TYPES:
+            logger.info("Media message: type=%s, contentUri=%s", msg_type, bool(content_url))
+            messages.append(NormalizedMessage(
+                chat_id=chat_id, channel_id=channel_id,
+                text="", message_id=message_id,
+                media_type=msg_type, content_url=content_url,
+            ))
 
-            messages.append(
-                NormalizedMessage(
-                    chat_id=chat_id,
-                    channel_id=channel_id,
-                    text=text,
-                    message_id=message_id,
-                )
-            )
-
-    # Handle status updates (ignore them but log)
     statuses = payload.get("statuses", [])
     if statuses:
         logger.debug("Received %d status updates (ignored)", len(statuses))
@@ -72,6 +83,10 @@ def verify_webhook_signature(body: bytes, signature: str | None, secret: str) ->
     to allow local development without Wazzup.
     """
     if not secret:
+        logger.warning(
+            "WAZZUP_WEBHOOK_SECRET is not set — signature verification is DISABLED. "
+            "Anyone can send fake webhooks. Set the secret before going to production."
+        )
         return True
     if not signature:
         return False

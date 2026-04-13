@@ -3,6 +3,7 @@ import logging
 
 import aio_pika
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse
 
 from app.providers.wazzup import extract_incoming_messages, is_valid_webhook, verify_webhook_signature
 from shared.config import get_settings
@@ -27,6 +28,12 @@ async def _get_exchange(request: Request) -> aio_pika.abc.AbstractExchange:
     return exchange
 
 
+@router.get("/wazzup")
+async def wazzup_webhook_verify():
+    """Wazzup sends GET to verify the webhook URL on registration."""
+    return {"ok": True}
+
+
 @router.post("/wazzup")
 async def wazzup_webhook(request: Request):
     """
@@ -47,8 +54,8 @@ async def wazzup_webhook(request: Request):
     logger.info("Wazzup webhook received: %s", json.dumps(payload, default=str)[:500])
 
     if not is_valid_webhook(payload):
-        logger.warning("Invalid webhook payload received")
-        return Response(status_code=400)
+        logger.info("Non-message webhook payload (validation or status): %s", list(payload.keys())[:5])
+        return {"ok": True}
 
     messages = extract_incoming_messages(payload)
     if not messages:
@@ -70,25 +77,28 @@ async def wazzup_webhook(request: Request):
     if not unique_messages:
         return {"ok": True, "processed": 0}
 
-    # Rebuild payload with only unique messages for the bot
-    deduped_payload = {**payload, "messages": [
-        m for m in payload.get("messages", [])
-        if any(m.get("messageId") == um.message_id or m.get("chatId") == um.chat_id
-               for um in unique_messages)
-    ]}
+    deduped_payload = {
+        "messages": [m.model_dump() for m in unique_messages]
+    }
 
-    exchange = await _get_exchange(request)
     body_bytes = json.dumps(deduped_payload, default=str).encode("utf-8")
-    await exchange.publish(
-        aio_pika.Message(
-            body_bytes,
-            content_type="application/json",
-            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-        ),
-        routing_key="incoming.whatsapp",
-    )
-    logger.info("Published %d message(s) to RabbitMQ", len(unique_messages))
+    try:
+        exchange = await _get_exchange(request)
+        await exchange.publish(
+            aio_pika.Message(
+                body_bytes,
+                content_type="application/json",
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            ),
+            routing_key="incoming.whatsapp",
+        )
+    except Exception:
+        logger.exception("Failed to publish %d message(s) to RabbitMQ", len(unique_messages))
+        # Clear cached exchange — it will be recreated on the next request
+        request.app.state.rabbit_exchange = None
+        return JSONResponse(status_code=500, content={"error": "Failed to queue messages"})
 
+    logger.info("Published %d message(s) to RabbitMQ", len(unique_messages))
     return {"ok": True, "processed": len(unique_messages)}
 
 

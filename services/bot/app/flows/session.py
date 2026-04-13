@@ -39,9 +39,11 @@ class SessionManager:
     async def create(self, phone: str) -> dict:
         session = {
             "phone": phone,
-            "state": "start",
-            "language": "ru",
-            "data": {},
+            "state": "collecting",
+            "language": None,
+            "extracted": {},
+            "conversation_history": [],
+            "turn_count": 0,
             "created_at": datetime.utcnow().isoformat(),
         }
         await self.save(phone, session)

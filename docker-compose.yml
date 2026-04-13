@@ -143,7 +143,9 @@ services:
     networks:
       - ktzh-network
 
+  # Optional: not started by default. Run with: docker compose --profile bot up -d
   bot:
+    profiles: ["bot"]
     build:
       context: .
       dockerfile: services/bot/Dockerfile

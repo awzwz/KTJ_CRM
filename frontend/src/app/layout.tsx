@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin", "cyrillic"] });
+import ReactQueryProvider from "@/components/providers/ReactQueryProvider";
+import AppShell from "@/components/layout/AppShell";
+import ErrorBoundary from "@/components/providers/ErrorBoundary";
 
 export const metadata: Metadata = {
   title: "КТЖ CRM — Система обращений",
@@ -15,8 +15,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru">
-      <body className={inter.className}>{children}</body>
+    <html lang="ru" className="light">
+      <body>
+        <ReactQueryProvider>
+          <ErrorBoundary>
+            <AppShell>{children}</AppShell>
+          </ErrorBoundary>
+        </ReactQueryProvider>
+      </body>
     </html>
   );
 }

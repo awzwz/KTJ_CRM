@@ -67,6 +67,9 @@ class AppealUpdate(BaseModel):
     assigned_to: UUID | None = None
     branch_id: UUID | None = None
     auto_response: str | None = None
+    llm_category: str | None = None
+    llm_confidence: float | None = None
+    metadata_json: dict | None = None
 
 
 class AppealListItem(BaseModel):
