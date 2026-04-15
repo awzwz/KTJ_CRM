@@ -300,6 +300,7 @@ async def start_consumer(
     session_manager = SessionManager()
     engine = SmartBotEngine(session_manager)
     wazzup = WazzupClient()
+    default_wazzup_channel = (get_settings().wazzup_channel_id or "").strip()
 
     MAX_PHONE_LOCKS = 1000
     _phone_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
@@ -361,7 +362,9 @@ async def start_consumer(
 
                 for msg in messages_list:
                     chat_id = msg.get("chat_id") or msg.get("chatId", "")
-                    channel_id = msg.get("channel_id") or msg.get("channelId", "")
+                    channel_id = (msg.get("channel_id") or msg.get("channelId") or "").strip()
+                    if not channel_id and default_wazzup_channel:
+                        channel_id = default_wazzup_channel
                     text = msg.get("text", "")
                     media_type = msg.get("media_type")
                     content_url = msg.get("content_url")

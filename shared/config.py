@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     wazzup_api_key: str = ""
     wazzup_webhook_secret: str = ""
     wazzup_api_url: str = "https://api.wazzup24.com/v3"
+    # Default WhatsApp channel UUID from Wazzup (used if incoming message has no channelId)
+    wazzup_channel_id: str = ""
 
     cors_origins: str = "http://localhost:3000"  # comma-separated allowed origins
 
